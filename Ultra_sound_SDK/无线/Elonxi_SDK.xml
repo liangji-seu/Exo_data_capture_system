@@ -1,0 +1,170 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Elonxi_SDK</name>
+    </assembly>
+    <members>
+        <member name="T:Elonxi_SDK.Newsletter">
+            <summary>
+            用来连接设备，发送命令到设备里
+            </summary>
+        </member>
+        <member name="M:Elonxi_SDK.Newsletter.#ctor(System.Int32,System.String,System.Int32)">
+            <summary>
+            创建Newsletter类的构造函数
+            </summary>
+            <param name="localPort">Describe 本地端口号.</param>
+            <param name="remotePort">Describe 设备端口号.</param>
+            <param name="remoteAddress">Describe 设备IP地址.</param>
+        </member>
+        <!-- Badly formed XML comment ignored for member "M:Elonxi_SDK.Newsletter.configParam(System.String,System.String,System.String,System.Byte,System.Byte,System.Boolean)" -->
+        <member name="M:Elonxi_SDK.Newsletter.triggerSignal(System.Byte)">
+            触发信号
+        </member>
+        <member name="M:Elonxi_SDK.Newsletter.requestPackage(System.Int32,System.Boolean)">
+            补包
+        </member>
+        <member name="M:Elonxi_SDK.Newsletter.deviceSwitch(System.Boolean)">
+            <summary>
+            设备连接和断开
+            </summary>
+            <param name="isConnect">Describe true是连接；false是断开.</param>
+        </member>
+        <member name="M:Elonxi_SDK.Newsletter.collectionSwitch(System.Boolean)">
+            <summary>
+            设备采集数据的开始和停止
+            </summary>
+            <param name="isCollection">Describe true是开始采集数据；false是停止采集数据.</param>
+        </member>
+        <member name="T:Elonxi_SDK.ServiceInfo">
+            <summary>
+            获得设备数据内容
+            </summary>
+        </member>
+        <member name="P:Elonxi_SDK.ServiceInfo.Identifier">
+            <summary>
+            设备IP地址
+            </summary>
+        </member>
+        <member name="P:Elonxi_SDK.ServiceInfo.Port">
+            <summary>
+            设备端口号
+            </summary>
+        </member>
+        <member name="P:Elonxi_SDK.ServiceInfo.ServiceName">
+            <summary>
+            设备名字
+            </summary>
+        </member>
+        <member name="P:Elonxi_SDK.ServiceInfo.ConnectionType">
+            <summary>
+            连接类型，是无线连接
+            </summary>
+        </member>
+        <member name="T:Elonxi_SDK.SearchDevice">
+            <summary>
+            搜索周围所有的设备IP
+            SearchDevice类只有一个事件和外部对接: <see cref="E:Elonxi_SDK.SearchDevice.OnServicesDiscovered"/>.
+            </summary>
+        </member>
+        <!-- Badly formed XML comment ignored for member "E:Elonxi_SDK.SearchDevice.OnServicesDiscovered" -->
+        <member name="T:Elonxi_SDK.PacketType">
+            <summary>
+            数据包类型
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.DeviceConnection">
+            <summary>
+            设备连接
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.Configuration">
+            <summary>
+            参数配置
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.CollectionStatus">
+            <summary>
+            采集状态 true开始采集，false停止采集 
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.IsPCStopMark">
+            <summary>
+            停止标记  true 上位机停止，false下位机停止 
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.BatteryCapacity">
+            <summary>
+            电池容量 1-100  
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.IsDeviceOnline">
+            <summary>
+            设备是否在线 true 空闲，false忙碌
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.TriggerTimestamp">
+            <summary>
+            触发时间戳,（就是代表打标时间戳） 
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.TriggerValue">
+            <summary>
+            触发值 
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.UltrasonicData">
+            <summary>
+            超声数据 
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.EMGData">
+            <summary>
+            EMG数据 
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.IMUData">
+            <summary>
+            IMU数据 
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.CombinedEMGIMU">
+            <summary>
+            包含EMG和IMU数据
+            </summary>
+        </member>
+        <member name="F:Elonxi_SDK.PacketType.TriggerRecord">
+            <summary>
+            触发录制状态
+            </summary>
+        </member>
+        <member name="T:Elonxi_SDK.IMUDataType">
+            <summary>
+            Acceleration x、y、z加速度；
+            AngularVelocity x、y、z角速度
+            XAngle x、y、z移动角度
+            </summary>
+        </member>
+        <member name="T:Elonxi_SDK.GlobalEvents">
+            <summary>
+            对设备数据进行解析，解析之后通过c#委托事件方式发送到api外部。
+            </summary>
+        </member>
+        <member name="E:Elonxi_SDK.GlobalEvents.NotificationReceived">
+            <summary>
+            设备状态信息通知
+            </summary>
+            <param name="type">Describe <see cref="T:Elonxi_SDK.PacketType"/>.</param>
+            <param name="message">Describe 根据PacketType不同，得到相应数据类型也不同，所有数据类型都是以string表示</param>
+        </member>
+        <!-- Badly formed XML comment ignored for member "E:Elonxi_SDK.GlobalEvents.RealRealUltrDataReceived" -->
+        <!-- Badly formed XML comment ignored for member "E:Elonxi_SDK.GlobalEvents.RealRealEMGReceived" -->
+        <member name="E:Elonxi_SDK.GlobalEvents.RealRealEmgSheddingReceived">
+            <summary>
+            肌电八个通道电极脱落状态。
+            </summary>
+            <param name="shedding">Describe 是一个bool[]类型，下标代表通道号，true是脱落状态，false是正常状态.</param>
+        </member>
+        <!-- Badly formed XML comment ignored for member "E:Elonxi_SDK.GlobalEvents.RealReaIMUReceived" -->
+    </members>
+</doc>

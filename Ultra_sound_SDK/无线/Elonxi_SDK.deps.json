@@ -1,0 +1,75 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "Elonxi_SDK/1.0.0": {
+        "dependencies": {
+          "NWaves": "0.9.6",
+          "Zeroconf": "3.6.11"
+        },
+        "runtime": {
+          "Elonxi_SDK.dll": {}
+        }
+      },
+      "NWaves/0.9.6": {
+        "runtime": {
+          "lib/net5.0/NWaves.dll": {
+            "assemblyVersion": "0.9.6.0",
+            "fileVersion": "0.9.6.0"
+          }
+        }
+      },
+      "System.Reactive/5.0.0": {
+        "runtime": {
+          "lib/net5.0/System.Reactive.dll": {
+            "assemblyVersion": "5.0.0.0",
+            "fileVersion": "5.0.0.1"
+          }
+        }
+      },
+      "Zeroconf/3.6.11": {
+        "dependencies": {
+          "System.Reactive": "5.0.0"
+        },
+        "runtime": {
+          "lib/net6.0/Zeroconf.dll": {
+            "assemblyVersion": "3.6.0.0",
+            "fileVersion": "3.6.11.11045"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Elonxi_SDK/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "NWaves/0.9.6": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-LoVqwy6zgeF9l7Yj9rihWtnbbytZOLtU/lFqjnZRFqOCLJQj60NLFPA4nfvAdzK3PsHeShIw7AuJZKSElcYOGg==",
+      "path": "nwaves/0.9.6",
+      "hashPath": "nwaves.0.9.6.nupkg.sha512"
+    },
+    "System.Reactive/5.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-erBZjkQHWL9jpasCE/0qKAryzVBJFxGHVBAvgRN1bzM0q2s1S4oYREEEL0Vb+1kA/6BKb5FjUZMp5VXmy+gzkQ==",
+      "path": "system.reactive/5.0.0",
+      "hashPath": "system.reactive.5.0.0.nupkg.sha512"
+    },
+    "Zeroconf/3.6.11": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-U8/BB0HjLTKEbxLyiS/u0lPGXuxHVPBQswCw4VKzxzBKcJD4e56JXKOThZEapXo8YeANsKqgxMxLRrHTHZY/8Q==",
+      "path": "zeroconf/3.6.11",
+      "hashPath": "zeroconf.3.6.11.nupkg.sha512"
+    }
+  }
+}
