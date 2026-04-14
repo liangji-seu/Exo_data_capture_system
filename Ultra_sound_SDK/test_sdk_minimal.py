@@ -1,6 +1,6 @@
 """
-最小化超声测试 - 直接使用 Elonxi_SDK.dll
-不依赖 PyQt5 / LSL / logic，只用 pythonnet + SDK
+最小化超声测试 - 参照供应商 UI.py 的调用方式
+直接使用 Elonxi_SDK.dll，不依赖 PyQt5 / LSL
 
 运行:
     cd Ultra_sound_SDK
@@ -9,7 +9,6 @@
 
 import argparse
 import time
-import sys
 
 from pythonnet import load
 load("coreclr")
@@ -24,16 +23,7 @@ from Elonxi_SDK import Newsletter, GlobalEvents, PacketType
 # ── 回调函数 ──
 
 def on_notification(packet_type, message):
-    if packet_type == PacketType.DeviceConnection:
-        print(f"[通知] 设备连接: {message}")
-    elif packet_type == PacketType.Configuration:
-        print(f"[通知] 配置下发: {message}")
-    elif packet_type == PacketType.CollectionStatus:
-        print(f"[通知] 采集状态: {message}")
-    elif packet_type == PacketType.BatteryCapacity:
-        print(f"[通知] 电量: {message}%")
-    else:
-        print(f"[通知] type={packet_type}, msg={message}")
+    print(f"[通知] type={packet_type}, msg={message}")
 
 
 def on_ultrasound_data(ultrasonic_data_by_channel):
@@ -56,11 +46,16 @@ def on_rel_data(is_ult, pack_number):
     print(f"[包编号] isUlt={is_ult}, packNumber={pack_number}")
 
 
+# 和 UI.py 中 sendData_Sig 一样的通用回调
+def on_send_data(channel, data_list, is_emg, pack_num):
+    tag = "EMG" if is_emg else "超声"
+    print(f"[{tag}] ch={channel}  pack={pack_num}  len={len(data_list)}  first5={data_list[:5]}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Elonxi SDK 最小化测试")
+    parser = argparse.ArgumentParser(description="Elonxi SDK 最小化超声测试")
     parser.add_argument("--device-ip", type=str, required=True, help="设备 IP")
-    parser.add_argument("--local-port", type=int, default=12345, help="本地端口（默认 12345）")
-    parser.add_argument("--device-port", type=int, default=8080, help="设备端口（默认 8080）")
+    parser.add_argument("--port", type=int, default=1430, help="端口（默认 1430，与供应商 UI 一致）")
     parser.add_argument("--ult-channels", type=str, default="0", help="超声通道（默认 '0'）")
     args = parser.parse_args()
 
@@ -72,17 +67,17 @@ def main():
     GlobalEvents.RealReaIMUReceived += on_imu_data
     GlobalEvents.RealRealRelDataReceived += on_rel_data
 
-    # ── 创建连接 ──
-    print(f"\n连接设备 {args.device_ip}:{args.device_port} (本地端口 {args.local_port})...")
-    newsletter = Newsletter(args.local_port, args.device_ip, args.device_port)
+    # ── 创建连接（参照 UI.py: 本地端口和设备端口相同）──
+    print(f"\n连接设备 {args.device_ip}:{args.port} (本地端口 {args.port})...")
+    newsletter = Newsletter(args.port, args.device_ip, args.port)
 
     # ── 开启设备 ──
     print("发送 deviceSwitch(True)...")
     newsletter.deviceSwitch(True)
     time.sleep(2)
 
-    # ── 下发配置 ──
-    print(f"发送 configParam(ult='{args.ult_channels}', emg='', imu='', 0, 0, False)...")
+    # ── 下发配置（关键：ultr 填通道，emg 留空，第7个参数=20 参照 elonxiPy_1.py）──
+    print(f"发送 configParam(ultr='{args.ult_channels}', emg='', imu='', 0, 0, False, 20)...")
     newsletter.configParam(args.ult_channels, "", "", 0, 0, False)
     time.sleep(1)
 
@@ -91,7 +86,7 @@ def main():
     newsletter.collectionSwitch(True)
     time.sleep(0.5)
 
-    print("\n=== 等待数据（Ctrl+C 停止）===\n")
+    print("\n=== 等待超声数据（Ctrl+C 停止）===\n")
 
     try:
         while True:

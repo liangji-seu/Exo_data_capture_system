@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip config:*)",
+      "Bash(pip install:*)",
+      "Bash(not exist:*)"
+    ]
+  }
+}

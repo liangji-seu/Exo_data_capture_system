@@ -104,6 +104,7 @@ class NewsletterBase(QObject):
     receiveSignal = pyqtSignal(object, object) #接收设备状态/通知信号（参数：PacketType枚举、消息内容）
     emgSheddSignal = pyqtSignal(object) #EMG数据丢包通知信号（参数：丢包列表）
     sendData_Sig = pyqtSignal(int, list , bool , int) #数据发送信号（参数：通道号、数据列表、是否EMG数据、包编号）
+    emgData_Sig = pyqtSignal(int, list, int)  # 通道、肌电数据列表、包号（参数按需调整）
     IMUData_send_Sig = pyqtSignal(dict) #IMU数据发送信号（参数：IMU数据字典）
     pkg_doneSignal = pyqtSignal(bool, object, object, object) #补包完成信号（参数：是否完成、是否丢包严重、EMG补包列表、超声补包列表）
     pkgMaxCountSignal = pyqtSignal(object, object) #补包总数信号（参数：数据类型(ult/emg)、最大补包数）
@@ -125,6 +126,9 @@ class NewsletterBase(QObject):
         self.sheddDict = {}
         # EMG数据缓冲：用于排序和批量处理
         self._waveBuffer = []
+
+        self._ultrData = []  # 若需要缓存超声数据，初始化为空列表
+        self._confUltChannels = []  # 超声通道配置，初始化为空列表
         # 补包标记：录制结束后开始补包则设为True
         self.isReplenishedPackage = False
         # 实时记录超声数据最新检测到的包编号
@@ -143,9 +147,6 @@ class NewsletterBase(QObject):
         self.initSheddDict()  # 初始化丢包字典
         self.initLSL()     # 初始化LSL数据流（用于推送EMG/IMU/超声数据）
 
-        #后面补充的变量：
-        self._ultrData = []  # 若需要缓存超声数据，初始化为空列表
-        self._confUltChannels = []  # 超声通道配置，初始化为空列表
         # 待补包列表：超声/EMG丢包包编号
         self.missing_ult = []
         self.missing_emg = []
@@ -178,6 +179,7 @@ class NewsletterBase(QObject):
         GlobalEvents.RealRealUltrDataReceived += self.on_real_ultr_data_received  #  超声数据
         GlobalEvents.RealRealRelDataReceived += self.on_real_RelData_Received  #  丢包通知(或许是获取实时包编号？)
         GlobalEvents.RealRealEMGReceived += self.on_real_emg_received  #  EMG数据
+        # GlobalEvents.RealRealEMGReceived += self.trygogoo
         GlobalEvents.RealRealEmgSheddingReceived += self.on_real_emg_shedding_received  #  EMG丢包
         GlobalEvents.RealReaIMUReceived += self.on_real_imu_received  # IMU数据
 
@@ -185,9 +187,11 @@ class NewsletterBase(QObject):
         threading.Thread(target=self.update_plot, daemon=True).start()
 
     def initLSL(self):
-        """初始化LSL数据流推送对象"""
-        self._emgLSL = SendSLStream('emg',8,100)
-        self._imuLSL = SendSLStream('imu', 36, 100)
+         """
+         初始化LSL数据流推送对象
+         """
+         self._emgLSL = SendSLStream('emg',8,100)
+         self._imuLSL = SendSLStream('imu', 36, 100)
 
     def setConfUltChannels(self,confUltChannels):
         """
@@ -528,6 +532,7 @@ class NewsletterBase(QObject):
 
 
     def on_real_ultr_data_received(self, ultrasonicDataByChannel):
+        return
         """
         处理来自不同通道的超声数据，并为每个数据数组发出一个信号。
         优化：减少不必要的列表转换，考虑批量处理信号发送。
@@ -537,6 +542,7 @@ class NewsletterBase(QObject):
         """
         #print("ultr shishidedao: ", self._currUltPackNumber)
         # 遍历每个通道的超声数据
+        print("hello2")
         for key, value_list in ultrasonicDataByChannel.items():
             for value in value_list:
                 # 只在需要时进行类型转换
@@ -558,9 +564,11 @@ class NewsletterBase(QObject):
     def update_plot(self):
         """后台线程：处理EMG数据缓冲，避免主线程阻塞"""
         while True:
+            print("updata_plot")
             # 从队列取出待处理的EMG数据（阻塞直到有数据）
             butterData = self._data_queue.get() #放到队列里面，然后通过线程从队列里面取出来，防止在同一个线程函数下面，导致包编号和数据处理不过来
             # 遍历数据并发送信号（供UI绘图）
+            print("updata—-plot")
             for itemG in butterData:
                  for key, value_list in itemG[1].items():
                      self.sendData_Sig.emit(key,value_list , True , itemG[0])
@@ -573,9 +581,20 @@ class NewsletterBase(QObject):
         :param emgDataByChannel: 字典（key=通道号，value=float[] 数据数组）
         """
         #c# self._filter public float[] applyFiltering(float[] samples)
-        print("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        print("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv")
         for key, value_list in emgDataByChannel.items():
+            # # 新增：发射肌电专属信号（重点！）
+            self.emgData_Sig.emit(key, list(value_list), self._currEmgPackNumber)
             self.sendData_Sig.emit(key, list(value_list), True, self._currEmgPackNumber)
+            # for value in value_list:
+            #     # 只在需要时进行类型转换
+            #     # 类型转换：C#数组 → Python列表
+            #     if not isinstance(value, list):
+            #         data_list = list(value)
+            #     else:
+            #         data_list = value
+            #     # 发送超声数据信号（供UI/保存模块处理）
+            #     self.sendData_Sig.emit(key, data_list, True , self._currEmgPackNumber)
         #print(f"EMG Data received: {emgDataByChannel}")
         #print("emg shishidedao: " , self._currEmgPackNumber) #调试预留备注
         # 历史逻辑：旧版正常录制/补包的数据缓冲排序（已移至data_process函数，保留仅作参考）
@@ -593,6 +612,9 @@ class NewsletterBase(QObject):
         #             self._waveBuffer.clear()
         #     if self._currEmgPackNumber > self._maxEmgPackNumber:
         #         self._waveBuffer.append((self._currEmgPackNumber , {k: list(v) for k, v in emgDataByChannel.items()}))
+
+    def trygogoo(self, emgDataByChannel):
+        print("trygogoog")
     def cleanWaveBuffer(self):
         """清空EMG数据缓冲（采集停止时调用）"""
         # 重置最大包编号（停止缓冲排序）拒绝接收停止后的任何无效数据。
@@ -615,6 +637,7 @@ class NewsletterBase(QObject):
         EMG丢包事件回调（处理硬件推送的丢包通知）
         :param shedding: C#数组（丢包包编号）
         """
+        print("on_real_emg_shedding_received")
         # 转换为Python列表
         sheddList = list(shedding)
         # 无丢包时直接返回
@@ -630,6 +653,7 @@ class NewsletterBase(QObject):
         IMU数据接收事件回调（处理硬件推送的IMU数据）
         :param imuByData: 嵌套字典（key=通道号，value=字典（key=IMUDataType，value=List<short> 数据））
         """
+        print("IMU")
         # 存储所有IMU数据（供UI处理）
         imuAllData = {}
         # 存储扁平化的IMU数据（供LSL推送）
@@ -652,14 +676,14 @@ class NewsletterBase(QObject):
     def configParam(self, ultr, emg, imu, inputMod, outMod, emgMod):
         """
         下发设备配置参数
-        :param ultr: 超声配置（通道列表）
-        :param emg: EMG配置（通道列表）
-        :param imu: IMU配置（通道列表）
+        :param ultr: 超声配置
+        :param emg: EMG配置
+        :param imu: IMU配置
         :param inputMod: 输入模式
         :param outMod: 输出模式
         :param emgMod: EMG模式
         """
-        self._newsletter.configParam(ultr, emg, imu, inputMod, outMod, emgMod)
+        self._newsletter.configParam(ultr, emg, imu, inputMod, outMod, emgMod,20)
 
     def deviceSwitch(self, isConnect):
         """
@@ -667,6 +691,7 @@ class NewsletterBase(QObject):
         :param isConnect: True=连接，False=断开
         """
         self._newsletter.deviceSwitch(isConnect)
+        print("连接成功")
 
     def collectionSwitch(self, isCollection):
         """
