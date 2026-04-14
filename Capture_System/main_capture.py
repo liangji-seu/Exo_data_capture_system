@@ -1,322 +1,205 @@
 """
-主采集系统 - 同步采集 XSens IMU 和 Elonxi 超声数据
+主采集入口 - 同步启动 IMU 和超声两个采集进程
 
-运行:
-    python main_capture.py [--imu-rate 100] [--ult-channels 0 1] [--device-ip 192.168.x.x]
-                           [--duration 60] [--output-dir ./data]
-
-输出:
+输出目录结构：
     data/
-        imu_YYYYMMDD_HHMMSS.csv      XSens IMU 原始数据
-        ult_YYYYMMDD_HHMMSS.csv      Elonxi 超声回波数据
+    └── 20260414_153022/           ← 每次运行自动创建（按时间戳命名）
+        ├── imu_20260414_153022.csv
+        └── ultrasound_20260414_153022.csv
+
+运行：
+    # 自动搜索超声设备 IP，采集 IMU + 超声
+    python main_capture.py
+
+    # 手动指定超声设备 IP
+    python main_capture.py --device-ip 192.168.137.222
+
+    # 指定采集时长 60 秒
+    python main_capture.py --device-ip 192.168.137.222 --duration 60
+
+    # 只采集超声（跳过 IMU）
+    python main_capture.py --no-imu
+
+    # 只采集 IMU（跳过超声）
+    python main_capture.py --no-ultrasound
+
+    # 指定超声通道
+    python main_capture.py --channels 1,2
 """
 
 import argparse
-import csv
-import os
-import signal
+import subprocess
 import sys
 import time
-import threading
+import signal
 from datetime import datetime
 from pathlib import Path
 
-from elonxi_reader import ElonxiReader
-from xsens_reader import XSensReader
-
-
-# ──────────────────────────────────────────────
-# CSV 写入器（后台线程）
-# ──────────────────────────────────────────────
-
-class CsvWriter:
-    """异步 CSV 写入器，将数据从队列写入文件"""
-
-    def __init__(self, filepath: Path, header: list[str]):
-        self._filepath = filepath
-        self._header = header
-        self._rows: list[list] = []
-        self._lock = threading.Lock()
-        self._flush_interval = 2.0  # 每 2 秒刷新一次
-        self._running = False
-        self._thread: threading.Thread | None = None
-        self._file = None
-        self._writer = None
-
-    def start(self):
-        self._file = open(self._filepath, "w", newline="", buffering=1)
-        self._writer = csv.writer(self._file)
-        self._writer.writerow(self._header)
-        self._running = True
-        self._thread = threading.Thread(target=self._flush_loop, daemon=True)
-        self._thread.start()
-
-    def write(self, row: list):
-        """线程安全写入一行"""
-        with self._lock:
-            self._rows.append(row)
-
-    def stop(self):
-        self._running = False
-        if self._thread:
-            self._thread.join(timeout=5.0)
-        self._flush_now()
-        if self._file:
-            self._file.close()
-
-    def _flush_loop(self):
-        while self._running:
-            time.sleep(self._flush_interval)
-            self._flush_now()
-
-    def _flush_now(self):
-        with self._lock:
-            rows = self._rows[:]
-            self._rows.clear()
-        if rows and self._writer:
-            self._writer.writerows(rows)
-
-
-# ──────────────────────────────────────────────
-# 主采集类
-# ──────────────────────────────────────────────
-
-class CaptureSystem:
-    def __init__(
-        self,
-        ult_channels: list[int],
-        device_ip: str | None,
-        imu_rate: int,
-        duration: float | None,
-        output_dir: Path,
-    ):
-        self.ult_channels = ult_channels
-        self.device_ip = device_ip
-        self.imu_rate = imu_rate
-        self.duration = duration
-        self.output_dir = output_dir
-
-        self._imu_writer: CsvWriter | None = None
-        self._ult_writer: CsvWriter | None = None
-        self._ult_waveform_len: int | None = None  # 首次收到数据时确定
-
-        self._elonxi = ElonxiReader(ult_channels=ult_channels)
-        self._xsens = XSensReader(sample_rate=imu_rate)
-
-        self._running = False
-        self._imu_count = 0
-        self._ult_count = 0
-
-    # ------------------------------------------------------------------
-    # IMU CSV 头（设备类型未知时先用最全的，后续根据实际数据动态创建）
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _imu_header() -> list[str]:
-        return [
-            "timestamp",
-            # IMU 原始数据
-            "acc_x", "acc_y", "acc_z",
-            "gyr_x", "gyr_y", "gyr_z",
-            "mag_x", "mag_y", "mag_z",
-            # VRU/AHRS 姿态
-            "quat_w", "quat_x", "quat_y", "quat_z",
-            "roll", "pitch", "yaw",
-            # GNSS
-            "lat", "lon", "altitude",
-            "vel_e", "vel_n", "vel_u",
-        ]
-
-    def _ult_header(self, n_points: int) -> list[str]:
-        header = ["timestamp", "channel"]
-        for ch in self.ult_channels:
-            for i in range(n_points):
-                header.append(f"ult_ch{ch}_pt{i}")
-        return header
-
-    # ------------------------------------------------------------------
-    # 主流程
-    # ------------------------------------------------------------------
-
-    def run(self):
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        ts_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # ── 连接 XSens IMU ──
-        print("\n=== 初始化 XSens IMU ===")
-        if not self._xsens.connect():
-            print("[警告] XSens IMU 连接失败，将不采集 IMU 数据")
-            xsens_ok = False
-        else:
-            xsens_ok = True
-            imu_path = self.output_dir / f"imu_{ts_tag}.csv"
-            self._imu_writer = CsvWriter(imu_path, self._imu_header())
-            self._imu_writer.start()
-            print(f"[XSens] IMU 数据将保存到: {imu_path}")
-
-        # ── 连接 Elonxi 超声 ──
-        print("\n=== 初始化 Elonxi 超声 ===")
-        if self.device_ip is None:
-            ips = self._elonxi.search_device(timeout=5.0)
-            if ips:
-                self.device_ip = ips[0]
-                print(f"[Elonxi] 使用自动发现的 IP: {self.device_ip}")
-            else:
-                print("[警告] 未能发现 Elonxi 设备，将不采集超声数据")
-                elonxi_ok = False
-        else:
-            elonxi_ok = True
-
-        if self.device_ip:
-            elonxi_ok = self._elonxi.connect(self.device_ip)
-            if elonxi_ok:
-                # 配置超声通道（如 "0,1"）
-                ult_ch_str = ",".join(str(c) for c in self.ult_channels)
-                self._elonxi.config(ult_channel_str=ult_ch_str)
-        else:
-            elonxi_ok = False
-
-        if not xsens_ok and not elonxi_ok:
-            print("[错误] 两个设备均连接失败，退出")
-            return
-
-        # ── 开始采集 ──
-        print("\n=== 开始采集 ===")
-        self._running = True
-
-        if xsens_ok:
-            self._xsens.start()
-        if elonxi_ok:
-            self._elonxi.start_collection()
-
-        # 捕获 Ctrl+C
-        signal.signal(signal.SIGINT, self._signal_handler)
-
-        start_time = time.time()
-        last_stat_time = start_time
-
-        print(f"采集中... {'（持续 %.0f 秒）' % self.duration if self.duration else '（按 Ctrl+C 停止）'}\n")
-
-        while self._running:
-            now = time.time()
-
-            # 检查持续时间
-            if self.duration and (now - start_time) >= self.duration:
-                print(f"\n[采集] 已达到设定时长 {self.duration:.0f}s，停止采集")
-                break
-
-            # ── 读取 IMU 数据 ──
-            if xsens_ok:
-                while self._xsens.data_available():
-                    ts, imu_data = self._xsens.get_data(timeout=0)
-                    if ts is not None:
-                        self._write_imu(ts, imu_data)
-
-            # ── 读取超声数据 ──
-            if elonxi_ok:
-                while self._elonxi.data_available():
-                    item = self._elonxi.get_data(timeout=0)
-                    if item is not None:
-                        ts, ch, waveform = item
-                        self._write_ult(ts, ch, waveform)
-
-            # ── 状态输出 ──
-            if now - last_stat_time >= 1.0:
-                elapsed = now - start_time
-                print(
-                    f"\r已采集 {elapsed:.1f}s | IMU: {self._imu_count} 条 | 超声: {self._ult_count} 条",
-                    end="", flush=True
-                )
-                last_stat_time = now
-
-            time.sleep(0.001)  # 1ms 主循环间隔
-
-        print("\n\n=== 停止采集 ===")
-        self._stop()
-
-    def _write_imu(self, ts: float, data: dict):
-        """写入 IMU 一行 CSV"""
-        row = [f"{ts:.6f}"]
-        for col in self._imu_header()[1:]:  # 跳过 timestamp
-            row.append(data.get(col, ""))
-        self._imu_writer.write(row)
-        self._imu_count += 1
-
-    def _write_ult(self, ts: float, ch: int, waveform: list[int]):
-        """写入超声一行 CSV"""
-        # 首次收到数据时创建 CSV（确定波形长度）
-        if self._ult_writer is None:
-            n = len(waveform)
-            self._ult_waveform_len = n
-            ts_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
-            ult_path = self.output_dir / f"ult_{ts_tag}.csv"
-            self._ult_writer = CsvWriter(ult_path, self._ult_header_flat(n))
-            self._ult_writer.start()
-            print(f"\n[Elonxi] 超声波形长度: {n} 点，数据保存到: {ult_path}")
-
-        # 构建行：timestamp, channel, pt0, pt1, ..., ptN
-        row = [f"{ts:.6f}", ch] + waveform
-        self._ult_writer.write(row)
-        self._ult_count += 1
-
-    def _ult_header_flat(self, n_points: int) -> list[str]:
-        """扁平化超声 CSV 列头：timestamp, channel, pt0, pt1, ..."""
-        return ["timestamp", "channel"] + [f"pt{i}" for i in range(n_points)]
-
-    def _stop(self):
-        self._running = False
-        self._xsens.stop()
-        self._xsens.disconnect()
-        self._elonxi.stop_collection()
-        self._elonxi.disconnect()
-        if self._imu_writer:
-            self._imu_writer.stop()
-        if self._ult_writer:
-            self._ult_writer.stop()
-        print(f"[完成] 共采集 IMU {self._imu_count} 条，超声 {self._ult_count} 条")
-
-    def _signal_handler(self, sig, frame):
-        print("\n[中断] 收到 Ctrl+C，正在停止...")
-        self._running = False
-
-
-# ──────────────────────────────────────────────
-# 命令行入口
-# ──────────────────────────────────────────────
 
 def parse_args():
     parser = argparse.ArgumentParser(description="IMU + 超声同步采集系统")
-    parser.add_argument(
-        "--imu-rate", type=int, default=100,
-        help="XSens IMU 采样率 Hz（默认100）"
-    )
-    parser.add_argument(
-        "--ult-channels", type=int, nargs="+", default=[0],
-        help="Elonxi 超声通道列表，例如 --ult-channels 0 1"
-    )
-    parser.add_argument(
-        "--device-ip", type=str, default=None,
-        help="Elonxi 设备 IP（留空则自动搜索）"
-    )
-    parser.add_argument(
-        "--duration", type=float, default=None,
-        help="采集持续时间（秒），留空则手动 Ctrl+C 停止"
-    )
-    parser.add_argument(
-        "--output-dir", type=str, default="./data",
-        help="CSV 输出目录（默认 ./data）"
-    )
+    parser.add_argument("--device-ip",    type=str,   default=None,
+                        help="超声设备 IP（不填则自动搜索）")
+    parser.add_argument("--channels",     type=str,   default="1,2,3,4",
+                        help="超声通道，逗号分隔（默认 '1,2,3,4'）")
+    parser.add_argument("--duration",     type=float, default=0,
+                        help="采集时长（秒），0 表示持续到 Ctrl+C")
+    parser.add_argument("--output-dir",   type=str,   default="./data",
+                        help="数据根目录（默认 ./data）")
+    parser.add_argument("--no-imu",       action="store_true",
+                        help="跳过 IMU 采集")
+    parser.add_argument("--no-ultrasound", action="store_true",
+                        help="跳过超声采集")
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+def stream_output(proc, prefix: str):
+    """将子进程的 stdout 实时转发到当前终端，加上前缀"""
+    for line in iter(proc.stdout.readline, b""):
+        text = line.decode("utf-8", errors="replace").rstrip()
+        if text:
+            print(f"{prefix} {text}", flush=True)
+
+
+def main():
     args = parse_args()
 
-    system = CaptureSystem(
-        ult_channels=args.ult_channels,
-        device_ip=args.device_ip,
-        imu_rate=args.imu_rate,
-        duration=args.duration,
-        output_dir=Path(args.output_dir),
-    )
-    system.run()
+    if args.no_imu and args.no_ultrasound:
+        print("[错误] --no-imu 和 --no-ultrasound 不能同时使用")
+        sys.exit(1)
+
+    # ── 创建本次会话输出目录 ─────────────────────────────────────────────
+    session_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_dir = Path(args.output_dir) / session_tag
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    print("=" * 60)
+    print("  IMU + 超声同步采集系统")
+    print("=" * 60)
+    print(f"  会话标签  : {session_tag}")
+    print(f"  输出目录  : {session_dir.resolve()}")
+    print(f"  采集模式  : {'IMU' if not args.no_imu else ''}{'+'if not args.no_imu and not args.no_ultrasound else ''}{'超声' if not args.no_ultrasound else ''}")
+    print(f"  采集时长  : {'持续' if args.duration == 0 else f'{args.duration:.0f} 秒'}")
+    if not args.no_ultrasound:
+        print(f"  超声 IP   : {args.device_ip or '自动搜索'}")
+        print(f"  超声通道  : {args.channels}")
+    print("=" * 60)
+
+    python = sys.executable   # 使用当前 Python 解释器，确保环境一致
+    script_dir = Path(__file__).parent
+
+    processes = {}    # {"imu": Popen, "ultrasound": Popen}
+    threads   = {}    # 日志转发线程
+
+    # ── 启动 IMU 子进程 ──────────────────────────────────────────────────
+    if not args.no_imu:
+        imu_cmd = [
+            python, str(script_dir / "capture_imu.py"),
+            "--output-dir",  str(session_dir),
+            "--session-tag", session_tag,
+        ]
+        if args.duration > 0:
+            imu_cmd += ["--duration", str(args.duration)]
+
+        print(f"\n[启动] IMU 进程: {' '.join(imu_cmd)}")
+        imu_proc = subprocess.Popen(
+            imu_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=str(script_dir),
+        )
+        processes["imu"] = imu_proc
+
+        import threading
+        t = threading.Thread(
+            target=stream_output, args=(imu_proc, "[IMU]  "), daemon=True
+        )
+        t.start()
+        threads["imu"] = t
+
+    # ── 启动超声子进程 ────────────────────────────────────────────────────
+    if not args.no_ultrasound:
+        ult_cmd = [
+            python, str(script_dir / "capture_ultrasound.py"),
+            "--output-dir",  str(session_dir),
+            "--session-tag", session_tag,
+            "--channels",    args.channels,
+        ]
+        if args.device_ip:
+            ult_cmd += ["--device-ip", args.device_ip]
+        if args.duration > 0:
+            ult_cmd += ["--duration", str(args.duration)]
+
+        print(f"\n[启动] 超声进程: {' '.join(ult_cmd)}")
+        ult_proc = subprocess.Popen(
+            ult_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=str(script_dir),
+        )
+        processes["ultrasound"] = ult_proc
+
+        import threading
+        t = threading.Thread(
+            target=stream_output, args=(ult_proc, "[超声] "), daemon=True
+        )
+        t.start()
+        threads["ultrasound"] = t
+
+    print(f"\n两个进程已启动，按 Ctrl+C 停止所有采集...\n")
+    print("-" * 60)
+
+    # ── 等待 / 监控 ──────────────────────────────────────────────────────
+    def stop_all(sig=None, frame=None):
+        print("\n\n[停止] 正在终止所有采集进程...")
+        for name, proc in processes.items():
+            if proc.poll() is None:   # 进程仍在运行
+                proc.send_signal(signal.SIGINT)   # 发送 Ctrl+C（优雅退出）
+                print(f"  已发送 SIGINT → {name} 进程 (PID {proc.pid})")
+
+    signal.signal(signal.SIGINT, stop_all)
+
+    try:
+        if args.duration > 0:
+            # 定时采集：等待时长到期，再给子进程一点收尾时间
+            time.sleep(args.duration + 3)
+            stop_all()
+        else:
+            # 持续采集：监控子进程，任意一个退出则停止全部
+            while True:
+                for name, proc in list(processes.items()):
+                    ret = proc.poll()
+                    if ret is not None:
+                        print(f"\n[警告] {name} 进程已退出（返回码 {ret}），停止其他进程")
+                        stop_all()
+                        break
+                else:
+                    time.sleep(0.5)
+                    continue
+                break
+
+    except KeyboardInterrupt:
+        stop_all()
+
+    # ── 等待所有子进程完全退出 ────────────────────────────────────────────
+    print("\n等待子进程退出...")
+    for name, proc in processes.items():
+        try:
+            proc.wait(timeout=10)
+            print(f"  {name} 进程已退出（返回码 {proc.returncode}）")
+        except subprocess.TimeoutExpired:
+            print(f"  {name} 进程超时未退出，强制终止")
+            proc.kill()
+
+    # ── 汇总 ─────────────────────────────────────────────────────────────
+    print("\n" + "=" * 60)
+    print("  采集完成")
+    print(f"  数据保存在: {session_dir.resolve()}")
+    for f in sorted(session_dir.iterdir()):
+        size_kb = f.stat().st_size / 1024
+        print(f"    {f.name}  ({size_kb:.1f} KB)")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()
