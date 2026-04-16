@@ -30,9 +30,10 @@ from threading import Lock
 
 import xsensdeviceapi as xda
 
-RADIO_CHANNEL = 25   # 无线信道，可改 11~25（与 MTw 设备保持一致）
-UPDATE_RATE   = 60   # 采样率 Hz
-WAIT_FOR_MTW  = 15   # 等待 MTw 连接的超时秒数
+RADIO_CHANNEL  = 25   # 无线信道，可改 11~25（与 MTw 设备保持一致）
+UPDATE_RATE    = 60   # 采样率 Hz
+WAIT_FOR_MTW   = 15   # 等待 MTw 连接的超时秒数
+STABLE_WAIT    = 3.0  # 发现第一个设备后，再等待这么多秒让其他设备也连上
 
 CSV_HEADER = [
     "timestamp", "device_id",
@@ -149,12 +150,19 @@ def main():
             raise RuntimeError(f"无法开启无线电，信道 {RADIO_CHANNEL}")
 
         # ── 4. 等待 MTw 设备连接 ─────────────────────────────────────────
+        # 先等到至少出现 1 个设备，再等 STABLE_WAIT 秒让其他设备也连上
         print(f"等待 MTw 设备连接（最多 {WAIT_FOR_MTW} 秒）...")
         mtw_devices = []
+        first_found_time = None
         deadline = time.time() + WAIT_FOR_MTW
+
         while time.time() < deadline:
             mtw_devices = master_device.children()
-            if len(mtw_devices) > 0:
+            if len(mtw_devices) > 0 and first_found_time is None:
+                first_found_time = time.time()
+                print(f"\n发现第一个 MTw，等待 {STABLE_WAIT:.0f}s 让其他设备也连上...")
+            # 在第一个设备出现后，再等 STABLE_WAIT 秒
+            if first_found_time and (time.time() - first_found_time) >= STABLE_WAIT:
                 break
             time.sleep(0.5)
             print(".", end="", flush=True)
@@ -204,7 +212,7 @@ def main():
 
         while True:
             if end_time and time.time() >= end_time:
-                print(f"\n已达到采集时长 {args.duration:.0f}s，停止")
+                print(f"已达到采集时长 {args.duration:.0f}s，停止")
                 break
 
             pkts = callback.getAllPackets()
@@ -215,6 +223,10 @@ def main():
 
             if not pkts:
                 time.sleep(0.001)
+            else:
+                # 每 100 行打印一次进度，避免刷屏
+                if count % 100 == 0:
+                    print(f"  [IMU] 已写入 {count} 行", flush=True)
 
     except KeyboardInterrupt:
         print(f"\n收到 Ctrl+C，停止采集")

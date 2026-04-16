@@ -53,8 +53,6 @@ from Elonxi_SDK import Newsletter, GlobalEvents, PacketType
 
 def search_device(timeout: float = 10.0):
     if not ZEROCONF_AVAILABLE:
-        print("[搜索] zeroconf 未安装，请用 --device-ip 手动指定 IP")
-        print("       安装方法: pip install zeroconf")
         return None
 
     class _Listener(ServiceListener):
@@ -66,14 +64,12 @@ def search_device(timeout: float = 10.0):
             info = zc.get_service_info(type_, name)
             if info:
                 ips = info.parsed_addresses()
-                print(f"  发现设备: {name}  IP={ips}")
                 self.found_ips.extend(ips)
                 self._event.set()
 
         def update_service(self, zc, type_, name): pass
         def remove_service(self, zc, type_, name): pass
 
-    print(f"[搜索] 正在局域网内搜索设备（最多 {timeout:.0f} 秒）...")
     zeroconf = Zeroconf()
     listener = _Listener()
     browser  = ServiceBrowser(zeroconf, "_http._udp.local.", listener)
@@ -83,9 +79,7 @@ def search_device(timeout: float = 10.0):
 
     if found and listener.found_ips:
         ip = listener.found_ips[0]
-        print(f"[搜索] 使用设备 IP: {ip}")
         return ip
-    print("[搜索] 未发现设备")
     return None
 
 
@@ -103,16 +97,7 @@ _csv_lock        = threading.Lock()
 # ─────────────────────────────────────────────
 
 def _on_notification(packet_type, message):
-    if packet_type == PacketType.DeviceConnection:
-        print(f"[通知] 设备连接: {message}")
-    elif packet_type == PacketType.Configuration:
-        print(f"[通知] 配置结果: {message}")
-    elif packet_type == PacketType.CollectionStatus:
-        print(f"[通知] 采集状态: {message}")
-    elif packet_type == PacketType.BatteryCapacity:
-        print(f"[通知] 电池电量: {message}")
-    elif packet_type == PacketType.IsDeviceOnline:
-        print(f"[通知] 设备在线: {message}")
+    pass
 
 
 def _on_rel_data(is_ult, pack_number):
@@ -129,9 +114,6 @@ def _on_ultrasound_data(ultrasonic_data_by_channel):
         for wf in waveforms:
             data = list(wf)
             _total_packets += 1
-            peak = max(data) if data else 0
-            print(f"[超声] pack={_curr_pack_num:>6d}  ch={ch}  "
-                  f"len={len(data):>4d}  peak={peak:>6d}")
 
             if _csv_writer is not None:
                 with _csv_lock:
@@ -171,17 +153,7 @@ def main():
     if not device_ip:
         device_ip = search_device(timeout=10.0)
         if not device_ip:
-            print("[错误] 未找到设备，退出。请用 --device-ip 手动指定", file=sys.stderr)
             sys.exit(1)
-
-    print("=" * 55)
-    print("  Elonxi 超声采集进程")
-    print("=" * 55)
-    print(f"  设备 IP   : {device_ip}")
-    print(f"  超声通道  : {ult_channels}")
-    print(f"  采集时长  : {'持续' if args.duration == 0 else f'{args.duration:.0f} 秒'}")
-    print(f"  输出文件  : {csv_path.resolve()}")
-    print("=" * 55)
 
     # ── 打开 CSV ─────────────────────────────────────────────────────────
     global _csv_writer
@@ -205,22 +177,18 @@ def main():
 
     newsletter.collectionSwitch(True)
     time.sleep(0.5)
-    print("\n采集中（Ctrl+C 停止）...\n")
 
     try:
         if args.duration > 0:
             end_time = time.time() + args.duration
             while time.time() < end_time:
-                print(f"  [剩余 {end_time - time.time():.1f}s  已收 {_total_packets} 包]",
-                      end="\r", flush=True)
                 time.sleep(0.1)
         else:
             while True:
-                print(f"  [已收 {_total_packets} 包]", end="\r", flush=True)
                 time.sleep(0.5)
 
     except KeyboardInterrupt:
-        print("\n收到 Ctrl+C，停止采集")
+        pass
 
     newsletter.collectionSwitch(False)
     time.sleep(0.5)
@@ -229,8 +197,6 @@ def main():
     _csv_writer = None
     csv_file.flush()
     csv_file.close()
-
-    print(f"\n超声采集结束，共 {_total_packets} 包  →  {csv_path}")
 
 
 if __name__ == "__main__":
