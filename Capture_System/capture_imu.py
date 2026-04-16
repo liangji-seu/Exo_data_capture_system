@@ -22,6 +22,7 @@ CSV 输出格式（每行一个采样）：
 
 import argparse
 import csv
+import signal
 import sys
 import time
 from datetime import datetime
@@ -31,7 +32,7 @@ from threading import Lock
 import xsensdeviceapi as xda
 
 RADIO_CHANNEL  = 25   # 无线信道，可改 11~25（与 MTw 设备保持一致）
-UPDATE_RATE    = 60   # 采样率 Hz
+UPDATE_RATE    = 200  # 采样率 Hz
 WAIT_FOR_MTW   = 15   # 等待 MTw 连接的超时秒数
 STABLE_WAIT    = 3.0  # 发现第一个设备后，再等待这么多秒让其他设备也连上
 
@@ -118,6 +119,15 @@ def main():
     callback      = None
     count         = 0
     csv_file      = None
+    _running      = True   # 用于响应 CTRL_BREAK_EVENT
+
+    def _handle_stop(sig, frame):
+        nonlocal _running
+        _running = False
+
+    signal.signal(signal.SIGINT, _handle_stop)
+    if hasattr(signal, "SIGBREAK"):              # Windows CTRL_BREAK_EVENT
+        signal.signal(signal.SIGBREAK, _handle_stop)
 
     try:
         # ── 1. 扫描端口，找 WirelessMaster（Dongle）──────────────────────
@@ -210,7 +220,7 @@ def main():
         start_time = time.time()
         end_time   = start_time + args.duration if args.duration > 0 else None
 
-        while True:
+        while _running:
             if end_time and time.time() >= end_time:
                 print(f"已达到采集时长 {args.duration:.0f}s，停止")
                 break

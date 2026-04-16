@@ -22,7 +22,11 @@ CSV 输出格式（每行一整包）：
 
 import argparse
 import csv
+import json
 import os
+import signal
+import socket
+import subprocess as _subp
 import sys
 import time
 import threading
@@ -45,6 +49,63 @@ clr.AddReference('System.Collections')
 clr.AddReference(str(_SDK_DIR))
 
 from Elonxi_SDK import Newsletter, GlobalEvents, PacketType
+
+
+# ─────────────────────────────────────────────
+#  端口占用检查与等待释放
+# ─────────────────────────────────────────────
+
+def _is_port_bound(port: int) -> bool:
+    """检测 UDP 端口是否已被占用"""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:
+            s.bind(("0.0.0.0", port))
+            return False
+        except OSError:
+            return True
+
+
+def _wait_port_free(port: int, timeout: float = 8.0):
+    """
+    检测 UDP 端口是否被占用，若占用则用 netstat + taskkill 强制释放（Windows），
+    然后轮询等待端口空闲，超时后打印警告继续。
+    """
+    if not _is_port_bound(port):
+        return
+
+    print(f"[超声] 端口 {port} 被占用，尝试释放...", flush=True)
+
+    if sys.platform == "win32":
+        import subprocess as _sp
+        try:
+            # netstat -ano 找出占用该 UDP 端口的 PID
+            result = _sp.run(
+                f'netstat -ano | findstr ":{port} "',
+                shell=True, capture_output=True, text=True
+            )
+            pids = set()
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                # 格式: 协议 本地地址 外部地址 [状态] PID
+                # UDP 行没有状态列，最后一列是 PID
+                if f":{port}" in (parts[1] if len(parts) > 1 else ""):
+                    pids.add(parts[-1])
+            for pid in pids:
+                print(f"[超声] taskkill /F /PID {pid}", flush=True)
+                _sp.run(f"taskkill /F /PID {pid}", shell=True,
+                        capture_output=True)
+        except Exception as e:
+            print(f"[超声] 释放端口时出错: {e}", flush=True)
+
+    # 轮询等待端口释放
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not _is_port_bound(port):
+            print(f"[超声] 端口 {port} 已释放", flush=True)
+            return
+        time.sleep(0.5)
+
+    print(f"[超声] 警告：端口 {port} 等待超时，继续尝试...", flush=True)
 
 
 # ─────────────────────────────────────────────
@@ -91,6 +152,12 @@ _curr_pack_num   = 0
 _csv_writer      = None
 _csv_lock        = threading.Lock()
 
+# 预览 socket（由 main() 注入）
+_preview_sock    = None          # UDP socket
+_preview_addr    = None          # (host, port)
+_preview_interval = 10           # 每 N 帧发一帧
+_ch_frame_count  = {}            # {ch: 计数器}
+
 
 # ─────────────────────────────────────────────
 #  C# SDK 回调
@@ -107,7 +174,7 @@ def _on_rel_data(is_ult, pack_number):
 
 
 def _on_ultrasound_data(ultrasonic_data_by_channel):
-    global _total_packets, _csv_writer
+    global _total_packets, _csv_writer, _ch_frame_count
     recv_time = time.time()
 
     for ch, waveforms in ultrasonic_data_by_channel.items():
@@ -115,11 +182,23 @@ def _on_ultrasound_data(ultrasonic_data_by_channel):
             data = list(wf)
             _total_packets += 1
 
+            # ── 写 CSV ───────────────────────────────────────────────────
             if _csv_writer is not None:
                 with _csv_lock:
                     _csv_writer.writerow(
                         [f"{recv_time:.6f}", ch, _curr_pack_num] + data
                     )
+
+            # ── 预览抽帧：每通道独立计数，每 _preview_interval 帧发一帧 ──
+            if _preview_sock is not None and _preview_addr is not None:
+                cnt = _ch_frame_count.get(ch, 0) + 1
+                _ch_frame_count[ch] = cnt
+                if cnt % _preview_interval == 0:
+                    try:
+                        msg = json.dumps({"ch": ch, "data": data}).encode()
+                        _preview_sock.sendto(msg, _preview_addr)
+                    except Exception:
+                        pass
 
 
 # ─────────────────────────────────────────────
@@ -128,18 +207,22 @@ def _on_ultrasound_data(ultrasonic_data_by_channel):
 
 def main():
     parser = argparse.ArgumentParser(description="Elonxi 超声采集进程")
-    parser.add_argument("--device-ip",   type=str,   default=None,
+    parser.add_argument("--device-ip",       type=str,   default=None,
                         help="设备 IP（不填则自动搜索）")
-    parser.add_argument("--port",        type=int,   default=1430,
+    parser.add_argument("--port",            type=int,   default=1430,
                         help="通信端口（默认 1430）")
-    parser.add_argument("--channels",    type=str,   default="1,2,3,4",
+    parser.add_argument("--channels",        type=str,   default="1,2,3,4",
                         help="超声通道，逗号分隔（默认 '1,2,3,4'）")
-    parser.add_argument("--duration",    type=float, default=0,
+    parser.add_argument("--duration",        type=float, default=0,
                         help="采集时长（秒），0 表示持续到 Ctrl+C")
-    parser.add_argument("--output-dir",  type=str,   default="./data",
+    parser.add_argument("--output-dir",      type=str,   default="./data",
                         help="CSV 输出目录（默认 ./data）")
-    parser.add_argument("--session-tag", type=str,   default=None,
+    parser.add_argument("--session-tag",     type=str,   default=None,
                         help="文件名时间标签，不填则自动生成")
+    parser.add_argument("--preview-port",    type=int,   default=0,
+                        help="预览 UDP 端口，0 表示不发送预览（默认 0）")
+    parser.add_argument("--preview-interval",type=int,   default=10,
+                        help="每隔多少帧发一帧预览（默认 10）")
     args = parser.parse_args()
 
     ult_channels = args.channels.strip()
@@ -155,48 +238,101 @@ def main():
         if not device_ip:
             sys.exit(1)
 
-    # ── 打开 CSV ─────────────────────────────────────────────────────────
-    global _csv_writer
-    csv_file = open(csv_path, "w", newline="", encoding="utf-8", buffering=1)
-    _csv_writer = csv.writer(csv_file)
-    header = ["timestamp", "channel", "pack_num"] + [f"d{i}" for i in range(1000)]
-    _csv_writer.writerow(header)
+    # ── 检查 SDK 通信端口是否已被占用，有则等待其释放 ──────────────────────
+    _wait_port_free(args.port, timeout=8.0)
 
-    # ── 注册事件回调 ──────────────────────────────────────────────────────
-    GlobalEvents.NotificationReceived     += _on_notification
-    GlobalEvents.RealRealUltrDataReceived += _on_ultrasound_data
-    GlobalEvents.RealRealRelDataReceived  += _on_rel_data
+    global _csv_writer, _preview_sock, _preview_addr, _preview_interval
+    csv_file   = None
+    newsletter = None
+    _running   = True   # 由信号处理器置 False
 
-    # ── 创建连接并采集 ────────────────────────────────────────────────────
-    newsletter = Newsletter(args.port, device_ip, args.port)
-    newsletter.deviceSwitch(True)
-    time.sleep(2)
+    # ── 初始化预览 UDP socket ────────────────────────────────────────────
+    if args.preview_port > 0:
+        _preview_interval = args.preview_interval
+        _preview_addr     = ("127.0.0.1", args.preview_port)
+        _preview_sock     = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        print(f"[超声] 预览 UDP → 127.0.0.1:{args.preview_port}  间隔 {_preview_interval} 帧")
 
-    newsletter.configParam(ult_channels, "", "", 0, 0, False)
-    time.sleep(1)
+    def _handle_stop(sig, frame):
+        nonlocal _running
+        _running = False
 
-    newsletter.collectionSwitch(True)
-    time.sleep(0.5)
+    signal.signal(signal.SIGINT, _handle_stop)
+    if hasattr(signal, "SIGBREAK"):              # Windows CTRL_BREAK_EVENT
+        signal.signal(signal.SIGBREAK, _handle_stop)
 
     try:
+        # ── 打开 CSV ─────────────────────────────────────────────────────────
+        csv_file = open(csv_path, "w", newline="", encoding="utf-8", buffering=1)
+        _csv_writer = csv.writer(csv_file)
+        header = ["timestamp", "channel", "pack_num"] + [f"d{i}" for i in range(1000)]
+        _csv_writer.writerow(header)
+
+        # ── 注册事件回调 ──────────────────────────────────────────────────────
+        GlobalEvents.NotificationReceived     += _on_notification
+        GlobalEvents.RealRealUltrDataReceived += _on_ultrasound_data
+        GlobalEvents.RealRealRelDataReceived  += _on_rel_data
+
+        # ── 创建连接并采集 ────────────────────────────────────────────────────
+        newsletter = Newsletter(args.port, device_ip, args.port)
+        newsletter.deviceSwitch(True)
+        time.sleep(2)
+
+        newsletter.configParam(ult_channels, "", "", 0, 0, False)
+        time.sleep(1)
+
+        newsletter.collectionSwitch(True)
+        time.sleep(0.5)
+
         if args.duration > 0:
             end_time = time.time() + args.duration
-            while time.time() < end_time:
+            while _running and time.time() < end_time:
                 time.sleep(0.1)
         else:
-            while True:
-                time.sleep(0.5)
+            while _running:
+                time.sleep(0.1)
 
     except KeyboardInterrupt:
-        pass
+        print("\n收到 Ctrl+C，停止采集")
 
-    newsletter.collectionSwitch(False)
-    time.sleep(0.5)
-    newsletter.deviceSwitch(False)
-
-    _csv_writer = None
-    csv_file.flush()
-    csv_file.close()
+    finally:
+        print("\n[超声] 正在释放资源...")
+        # 1. 先停止采集、再断开设备（newsletter 内部持有 UDP socket，这里释放它）
+        if newsletter is not None:
+            try:
+                newsletter.collectionSwitch(False)
+                time.sleep(0.3)
+                newsletter.deviceSwitch(False)
+                time.sleep(0.5)   # 给 SDK 内部 socket 多一点关闭时间
+                print("[超声] 设备已断开")
+            except Exception as e:
+                print(f"[超声] 关闭设备时出错: {e}", file=sys.stderr)
+            finally:
+                # 强制置 None，让 GC / .NET finalizer 释放内部 socket
+                newsletter = None
+        # 2. 注销事件回调，防止残留回调写已关闭的 CSV
+        try:
+            GlobalEvents.NotificationReceived     -= _on_notification
+            GlobalEvents.RealRealUltrDataReceived -= _on_ultrasound_data
+            GlobalEvents.RealRealRelDataReceived  -= _on_rel_data
+        except Exception:
+            pass
+        # 3. 关闭 CSV（先置 None 让回调不再写入）
+        _csv_writer = None
+        if csv_file is not None:
+            try:
+                csv_file.flush()
+                csv_file.close()
+            except Exception:
+                pass
+        # 4. 关闭预览 socket
+        if _preview_sock is not None:
+            try:
+                _preview_sock.close()
+            except Exception:
+                pass
+            _preview_sock = None
+        print(f"[超声] 采集结束，共 {_total_packets} 包  →  {csv_path}")
 
 
 if __name__ == "__main__":
