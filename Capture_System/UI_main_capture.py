@@ -42,8 +42,18 @@ PREVIEW_PORT = 19876    # UI 监听的 UDP 端口，capture_ultrasound.py 向此
 UDP_BUF      = 65536
 
 # ── 下拉框选项（按需修改）────────────────────────────────────────────────────
-CAPTURE_CONDITIONS = ["条件A", "条件B", "条件C", "条件D"]
-WEARING_CONDITIONS = ["穿戴1", "穿戴2", "穿戴3", "穿戴4"]
+CAPTURE_CONDITIONS = [  "1_1.平地行走0.8m/s",
+                        "1_2.平地行走1.25m/s", 
+                        "1_3.平地行走1.6m/s", 
+                        "2.上坡5°,1m/s", 
+                        "3.下坡5°,1m/s", 
+                        "4.上楼", 
+                        "5.下楼", 
+                        "6_1.站立", 
+                        "6_2.站立2行走",
+                        "6_3.行走2站立",
+                      ]
+WEARING_CONDITIONS = ["a.不穿", "b.零力矩", "c.端到端助力", "d.样条助力"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -260,6 +270,12 @@ class MainWindow(QWidget):
         self._lbl_subject.setStyleSheet("color: gray; font-size: 11px;")
         root.addWidget(self._lbl_subject)
 
+        # IMU 设备数展示行
+        self._lbl_imu_devices = QLabel("IMU 设备：未连接")
+        self._lbl_imu_devices.setAlignment(Qt.AlignCenter)
+        self._lbl_imu_devices.setStyleSheet("color: gray; font-size: 11px;")
+        root.addWidget(self._lbl_imu_devices)
+
         # 状态
         self._status = QLabel("状态：未采集")
         self._status.setAlignment(Qt.AlignCenter)
@@ -398,14 +414,13 @@ class MainWindow(QWidget):
             c.setData([])
         self._stopped = False
 
-        # 构造文件夹名：[受试者编号]_[采集条件]_[穿戴条件]_[session]_[时间戳]
+        # 构造文件夹名：[受试者编号]_[穿戴条件]_[采集条件]_[时间戳]
         timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
-        session_tag = timestamp   # 子进程文件名仍用时间戳以保持唯一性
+        session_tag = timestamp
         folder_name = (
             f"{info['subject_id']}"
-            f"_{info['capture_condition']}"
             f"_{info['wearing_condition']}"
-            f"_session{info['session']:02d}"
+            f"_{info['capture_condition']}"
             f"_{timestamp}"
         )
         self._session_dir = SCRIPT_DIR / "data" / folder_name
@@ -424,6 +439,8 @@ class MainWindow(QWidget):
             f"Session: {info['session']}"
         )
         self._lbl_subject.setStyleSheet("color: #90EE90; font-size: 11px;")
+        self._lbl_imu_devices.setText("IMU 设备：连接中...")
+        self._lbl_imu_devices.setStyleSheet("color: gray; font-size: 11px;")
 
         python   = sys.executable
         interval = self._spin_interval.value()
@@ -449,6 +466,7 @@ class MainWindow(QWidget):
         self._processes["imu"] = imu_proc
         imu_reader = ProcReaderThread(imu_proc, "imu", "[IMU] ")
         imu_reader.line_ready.connect(self._append_log)
+        imu_reader.line_ready.connect(self._on_imu_log)
         imu_reader.finished_sig.connect(self._on_proc_finished)
         imu_reader.start()
         self._readers["imu"] = imu_reader
@@ -502,6 +520,17 @@ class MainWindow(QWidget):
         self._btn_stop.setEnabled(True)
         self._spin_interval.setEnabled(False)
         self._status.setText("状态：采集中...")
+
+    # ── IMU 日志解析：提取设备连接数 ─────────────────────────────────────────
+    def _on_imu_log(self, text: str):
+        # capture_imu.py 打印：共连接 X 个 MTw 设备
+        if "共连接" in text and "MTw" in text:
+            try:
+                n = int(text.split("共连接")[1].split("个")[0].strip())
+                self._lbl_imu_devices.setText(f"IMU 设备：已连接 {n} 个 MTw")
+                self._lbl_imu_devices.setStyleSheet("color: #90EE90; font-size: 11px;")
+            except (ValueError, IndexError):
+                pass
 
     # ── 停止采集（按钮触发） ──────────────────────────────────────────────────
     def _on_stop_clicked(self):
@@ -557,6 +586,8 @@ class MainWindow(QWidget):
         self._btn_stop.setEnabled(False)
         self._spin_interval.setEnabled(True)
         self._status.setText("状态：已停止")
+        self._lbl_imu_devices.setText("IMU 设备：未连接")
+        self._lbl_imu_devices.setStyleSheet("color: gray; font-size: 11px;")
 
     # ── 波形更新 ──────────────────────────────────────────────────────────────
     def _on_wave(self, ch: int, data: list):
