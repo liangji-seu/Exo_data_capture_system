@@ -476,6 +476,26 @@ class MainWindow(QWidget):
         ult_reader.start()
         self._readers["ultrasound"] = ult_reader
 
+        # ── 启动电机采集子进程 ────────────────────────────────────────────
+        motor_cmd = [
+            python, str(SCRIPT_DIR / "capture_motor.py"),
+            "--output-dir",  str(self._session_dir),
+            "--session-tag", session_tag,
+        ]
+        motor_proc = subprocess.Popen(
+            motor_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=str(SCRIPT_DIR),
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+        )
+        self._processes["motor"] = motor_proc
+        motor_reader = ProcReaderThread(motor_proc, "motor", "[电机]")
+        motor_reader.line_ready.connect(self._append_log)
+        motor_reader.finished_sig.connect(self._on_proc_finished)
+        motor_reader.start()
+        self._readers["motor"] = motor_reader
+
         self._append_log(f"会话目录: {self._session_dir}")
         self._append_log(f"受试者信息已保存 → subject_info.json")
         self._btn_start.setEnabled(False)
@@ -510,7 +530,10 @@ class MainWindow(QWidget):
         self._processes.pop(name, None)
         self._readers.pop(name, None)
 
-        if not self._stopped and retcode not in (0, -2, -15):
+        # 电机进程找不到设备时正常退出（retcode=1），不影响其他采集
+        if name == "motor" and retcode == 1:
+            self._append_log("[电机] 未找到 Teensy，电机数据不采集，其他采集继续")
+        elif not self._stopped and retcode not in (0, -2, -15):
             self._append_log(f"[警告] {name} 意外退出，停止所有采集")
             self._stop_all()
 
