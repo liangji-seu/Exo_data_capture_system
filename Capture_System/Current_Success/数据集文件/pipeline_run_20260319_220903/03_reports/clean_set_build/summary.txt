@@ -1,0 +1,5 @@
+Input files: 26
+Kept files: 26
+Dropped files: 0
+Output dir: D:\nightmare\Documents\SRTP\AllData\Merge_Data_Process\pipeline_run_20260319_220903\04_clean_dataset
+Report: D:\nightmare\Documents\SRTP\AllData\Merge_Data_Process\pipeline_run_20260319_220903\03_reports\clean_set_build\clean_build_report.csv

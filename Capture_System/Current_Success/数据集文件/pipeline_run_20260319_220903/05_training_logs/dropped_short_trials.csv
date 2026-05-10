@@ -1,0 +1,4 @@
+﻿name,n_samples,drop_rule
+raw_data_a4ef56fc__Sub_10_Seg_1_Aligned.csv,94,short_clip<110
+raw_data_a4ef56fc__Sub_11_Seg_1_Aligned.csv,92,short_clip<110
+raw_data_a4ef56fc__Sub_11_Seg_2_Aligned.csv,108,short_clip<110

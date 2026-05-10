@@ -1,0 +1,6 @@
+Total files analyzed: 26
+KEEP: 3
+WARN: 23
+DROP: 0
+
+Top DROP reasons:

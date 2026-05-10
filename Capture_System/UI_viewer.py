@@ -43,12 +43,18 @@ import pyqtgraph as pg
 # ─────────────────────────────────────────────────────────────────────────────
 
 def find_csv(directory: str, prefix: str) -> str:
-    """在 directory 下找第一个以 prefix 开头的 .csv 文件，找不到返回空串。"""
+    """在 directory 下找第一个以 prefix 开头的 .csv 文件，找不到返回空串。
+    同时兼容 handle_data_XX/input/ 下的无后缀文件名（如 ultrasound.csv）。"""
     d = Path(directory)
     if not d.is_dir():
         return ""
+    # 先找带时间戳后缀的（如 ultrasound_20260418.csv）
     matches = sorted(d.glob(f"{prefix}*.csv"))
-    return str(matches[0]) if matches else ""
+    if matches:
+        return str(matches[0])
+    # 再找精确名称（去掉尾部下划线，如 ultrasound.csv）
+    exact = d / f"{prefix.rstrip('_')}.csv"
+    return str(exact) if exact.exists() else ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────

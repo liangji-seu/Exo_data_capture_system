@@ -1,0 +1,12 @@
+gait_verify_manager:
+  ros__parameters:
+    imu_topic: "xsens_imu_data"
+    output_topic: "/exo/joint_torque_spline"
+    publish_rate: 100.0
+
+    # IMU ID suffix mapping (last 2 hex chars of Xsens IMU ID)
+    # Adjust these to match your actual IMU placement
+    left_femur_imu_id: "9D"
+    left_tibia_imu_id: "A4"
+    right_femur_imu_id: "9C"
+    right_tibia_imu_id: "A0"

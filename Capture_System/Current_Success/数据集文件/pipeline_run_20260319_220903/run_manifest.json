@@ -1,0 +1,78 @@
+{
+  "run_name": "pipeline_run_20260319_220903",
+  "created_at": "2026-03-19T22:28:59",
+  "raw_sources": [
+    "D:\\nightmare\\Documents\\SRTP\\AllData\\202614\\raw_data",
+    "D:\\nightmare\\Documents\\SRTP\\AllData\\2026_1_26\\2026_1_26_unpr_data"
+  ],
+  "subject_folders": [
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "19",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25",
+    "26",
+    "27",
+    "28",
+    "29",
+    "30"
+  ],
+  "stats": {
+    "aligned_files_per_source": {
+      "raw_data_a4ef56fc": 9,
+      "2026_1_26_unpr_data_8b876032": 17
+    },
+    "merged_copy_stats": {
+      "copied": 26,
+      "skipped": 0
+    },
+    "label_shift_repair_enabled": true,
+    "label_shift_repair_stats": {
+      "repaired": 0,
+      "missing": 2
+    },
+    "clean_csv_count": 26,
+    "train_enabled": true,
+    "training_info": {
+      "train_seconds": 1186.31,
+      "train_save_dir": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903\\05_training_logs",
+      "train_script": "D:\\nightmare\\Documents\\SRTP\\LSTM\\模型9_处理.py"
+    },
+    "timings_seconds": {
+      "ultrasound_align_seconds": 5.67,
+      "merge_seconds": 0.06,
+      "label_shift_repair_seconds": 0.0,
+      "audit_seconds": 1.6,
+      "clean_build_seconds": 1.79,
+      "train_seconds": 1186.31
+    },
+    "total_seconds": 1195.43
+  },
+  "paths": {
+    "run_dir": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903",
+    "aligned_root": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903\\01_aligned_per_source",
+    "merged_trainable_dir": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903\\02_merged_trainable",
+    "audit_report_dir": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903\\03_reports\\label_consistency_audit",
+    "clean_build_report_dir": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903\\03_reports\\clean_set_build",
+    "label_shift_repair_report_dir": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903\\03_reports\\label_shift_repair",
+    "clean_dataset_dir": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903\\04_clean_dataset",
+    "audit_main_csv": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903\\03_reports\\label_consistency_audit\\label_consistency_audit.csv",
+    "clean_build_csv": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903\\03_reports\\clean_set_build\\clean_build_report.csv",
+    "label_shift_repair_csv": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903\\03_reports\\label_shift_repair\\label_shift_repair_log.csv",
+    "training_save_dir": "D:\\nightmare\\Documents\\SRTP\\AllData\\Merge_Data_Process\\pipeline_run_20260319_220903\\05_training_logs"
+  }
+}
